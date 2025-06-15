@@ -1,6 +1,6 @@
 # 🗣️ yap
 
-A CLI for on-device speech transcription using [Speech.framework](https://developer.apple.com/documentation/speech).
+A CLI for on-device speech transcription using [Speech.framework](https://developer.apple.com/documentation/speech) on macOS 26.
 
 ### Usage
 
@@ -46,4 +46,10 @@ yt-dlp "https://www.youtube.com/watch?v=ydejkIvyrJA" -x --exec yap
 
 ```bash
 yap video.mp4 | uvx llm -m mlx-community/Llama-3.2-1B-Instruct-4bit 'Summarize this transcript:'
+```
+
+#### Create SRT captions for a video
+
+```bash
+yap video.mp4 --srt -o captions.srt
 ```
