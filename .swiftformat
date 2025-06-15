@@ -1,0 +1,22 @@
+--swiftversion 5.9
+--enable blankLineAfterImports
+--enable blankLinesBetweenImports
+--enable blockComments
+--enable docComments
+--enable isEmpty
+--enable markTypes
+--enable organizeDeclarations
+
+--disable numberFormatting
+--disable redundantNilInit
+--disable trailingCommas
+--disable wrapMultilineStatementBraces
+
+--ifdef no-indent
+--funcattributes same-line
+--typeattributes same-line
+--computedvarattrs same-line
+--storedvarattrs same-line
+--ranges no-space
+--header strip
+--selfrequired log,debug,info,notice,warning,trace,error,critical,fault

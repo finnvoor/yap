@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: swift build -c release --arch arm64 --arch x86_64 --product yap
+      - name: Compress
+        run: tar -czf ${{ github.ref_name }}.tar.gz -C .build/apple/Products/Release yap
+      - name: Release
+        run: gh release create ${{ github.ref_name }} ${{ github.ref_name }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  homebrew:
+    needs: release
+    name: Bump Homebrew formula
+    runs-on: ubuntu-latest
+    environment: Env
+    steps:
+      - uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          homebrew-tap: finnvoor/homebrew-tools
+          download-url: https://github.com/finnvoor/yap/releases/download/${{ github.ref_name }}/${{ github.ref_name }}.tar.gz
+        env:
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
