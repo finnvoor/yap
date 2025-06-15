@@ -2,8 +2,7 @@
 
 A CLI for on-device speech transcription using [Speech.framework](https://developer.apple.com/documentation/speech) on macOS 26.
 
-![Demo](https://github.com/user-attachments/assets/3691ca83-37be-4fce-9a01-5efe8058c93e)
-
+![Demo](https://github.com/user-attachments/assets/326de51d-5a58-4c96-9d6c-98b07e6d9e58)
 
 ### Usage
 
