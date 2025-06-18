@@ -53,7 +53,6 @@ import Speech
             attributeOptions: outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
         )
         let modules: [any SpeechModule] = [transcriber]
-
         let installed = await Set(SpeechTranscriber.installedLocales)
         if !installed.map({ $0.identifier(.bcp47) }).contains(locale.identifier(.bcp47)) {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
@@ -98,9 +97,10 @@ import Speech
                 await MainActor.run {
                     transcript += result.text
                 }
-                let progress = result.resultsFinalizationTime.seconds / audioFileDuration
+                let progress = max(min(result.resultsFinalizationTime.seconds / audioFileDuration, 1), 0)
                 var percent = progress.formatted(.percent.precision(.fractionLength(0)))
-                percent = String(String(repeating: " ", count: 4 - percent.count)) + percent
+                var oneHundredPercent = 1.0.formatted(.percent.precision(.fractionLength(0)))
+                percent = String(String(repeating: " ", count: max(oneHundredPercent.count - percent.count, 0))) + percent
                 let message = "[\(percent)] \(String(result.text.characters).trimmingCharacters(in: .whitespaces).prefix(terminalColumns - 9))"
                 progressHandler(message)
             }
