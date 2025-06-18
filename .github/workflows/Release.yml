@@ -13,9 +13,9 @@ jobs:
       - name: Build
         run: swift build -c release --arch arm64 --arch x86_64 --product yap
       - name: Compress
-        run: tar -czf ${{ github.ref_name }}.tar.gz -C .build/apple/Products/Release yap
+        run: tar -czf yap-${{ github.ref_name }}.tar.gz -C .build/apple/Products/Release yap
       - name: Release
-        run: gh release create ${{ github.ref_name }} ${{ github.ref_name }}.tar.gz
+        run: gh release create ${{ github.ref_name }} yap-${{ github.ref_name }}.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   homebrew:
@@ -27,6 +27,6 @@ jobs:
       - uses: mislav/bump-homebrew-formula-action@v3
         with:
           homebrew-tap: finnvoor/homebrew-tools
-          download-url: https://github.com/finnvoor/yap/releases/download/${{ github.ref_name }}/${{ github.ref_name }}.tar.gz
+          download-url: https://github.com/finnvoor/yap/releases/download/${{ github.ref_name }}/yap-${{ github.ref_name }}.tar.gz
         env:
           COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}

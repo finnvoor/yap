@@ -99,9 +99,9 @@ import Speech
                 }
                 let progress = max(min(result.resultsFinalizationTime.seconds / audioFileDuration, 1), 0)
                 var percent = progress.formatted(.percent.precision(.fractionLength(0)))
-                var oneHundredPercent = 1.0.formatted(.percent.precision(.fractionLength(0)))
+                let oneHundredPercent = 1.0.formatted(.percent.precision(.fractionLength(0)))
                 percent = String(String(repeating: " ", count: max(oneHundredPercent.count - percent.count, 0))) + percent
-                let message = "[\(percent)] \(String(result.text.characters).trimmingCharacters(in: .whitespaces).prefix(terminalColumns - 9))"
+                let message = "[\(percent)] \(String(result.text.characters).trimmingCharacters(in: .whitespaces).prefix(terminalColumns - "⠋ [\(oneHundredPercent)] ".count))"
                 progressHandler(message)
             }
         }
