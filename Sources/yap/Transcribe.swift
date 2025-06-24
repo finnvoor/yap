@@ -10,7 +10,7 @@ import Speech
         name: .shortAndLong,
         help: "(default: current)",
         transform: Locale.init(identifier:)
-    ) var locale: Locale = .current
+    ) var locale: Locale = .init(identifier: Locale.current.identifier)
 
     @Flag(
         help: "Replaces certain words and phrases with a redacted form."
@@ -42,9 +42,14 @@ import Speech
 
         let supported = await SpeechTranscriber.supportedLocales
         guard supported.map({ $0.identifier(.bcp47) }).contains(locale.identifier(.bcp47)) else {
-            noora.error(.alert("Locale \(locale.identifier) is not supported"))
+            noora.error(.alert("Locale \"\(locale.identifier)\" is not supported. Supported locales:\n\(supported.map(\.identifier))"))
             throw Error.unsupportedLocale
         }
+
+        for locale in await AssetInventory.allocatedLocales {
+            await AssetInventory.deallocate(locale: locale)
+        }
+        try await AssetInventory.allocate(locale: locale)
 
         let transcriber = SpeechTranscriber(
             locale: locale,
@@ -88,9 +93,9 @@ import Speech
         } else { 64 }
 
         try await noora.progressStep(
-            message: "Transcribing audio…",
-            successMessage: "Audio transcribed",
-            errorMessage: "Failed to transcribe audio",
+            message: "Transcribing audio using locale: \"\(locale.identifier)\"…",
+            successMessage: "Audio transcribed using locale: \"\(locale.identifier)\"",
+            errorMessage: "Failed to transcribe audio using locale: \"\(locale.identifier)\"",
             showSpinner: true
         ) { @Sendable progressHandler in
             for try await result in transcriber.results {
