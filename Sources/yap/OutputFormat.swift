@@ -15,7 +15,7 @@ enum OutputFormat: String, EnumerableFlag {
         }
     }
 
-    func text(for transcript: AttributedString) -> String {
+    func text(for transcript: AttributedString, maxLength: Int) -> String {
         switch self {
         case .txt:
             return String(transcript.characters)
@@ -28,7 +28,7 @@ enum OutputFormat: String, EnumerableFlag {
                 return String(format: "%0.2d:%0.2d:%0.2d,%0.3d", h, m, s, ms)
             }
 
-            return transcript.sentences(maxLength: 40).compactMap { (sentence: AttributedString) -> (CMTimeRange, String)? in
+            return transcript.sentences(maxLength: maxLength).compactMap { (sentence: AttributedString) -> (CMTimeRange, String)? in
                 guard let timeRange = sentence.audioTimeRange else { return nil }
                 return (timeRange, String(sentence.characters))
             }.enumerated().map { index, run in
