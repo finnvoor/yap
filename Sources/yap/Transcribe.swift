@@ -31,6 +31,11 @@ import Speech
         transform: URL.init(fileURLWithPath:)
     ) var outputFile: URL?
 
+    @Option(
+        name: .shortAndLong,
+        help: "Maximum sentence length in characters. If not provided, it will be set to 40.",
+    ) var maxLength: Int = 40
+
     mutating func run() async throws {
         let piped = isatty(STDOUT_FILENO) == 0
         struct DevNull: StandardPipelining { func write(content _: String) {} }
@@ -112,7 +117,7 @@ import Speech
         }
 
         if let outputFile {
-            try outputFormat.text(for: transcript).write(
+            try outputFormat.text(for: transcript, maxLength: maxLength).write(
                 to: outputFile,
                 atomically: false,
                 encoding: .utf8
@@ -121,7 +126,7 @@ import Speech
         }
 
         if piped || outputFile == nil {
-            print(outputFormat.text(for: transcript))
+            print(outputFormat.text(for: transcript, maxLength: maxLength))
         }
     }
 }
