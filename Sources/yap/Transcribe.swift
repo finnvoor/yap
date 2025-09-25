@@ -46,10 +46,10 @@ import Speech
             throw Error.unsupportedLocale
         }
 
-        for locale in await AssetInventory.allocatedLocales {
-            await AssetInventory.deallocate(locale: locale)
+        for locale in await AssetInventory.reservedLocales {
+            await AssetInventory.release(reservedLocale: locale)
         }
-        try await AssetInventory.allocate(locale: locale)
+        try await AssetInventory.reserve(locale: locale)
 
         let transcriber = SpeechTranscriber(
             locale: locale,
