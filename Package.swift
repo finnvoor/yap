@@ -19,6 +19,9 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Noora", package: "Noora")
             ]
+            resources: [
+                .copy("Resources/man/yap.1")
+            ]
         )
     ]
 )
