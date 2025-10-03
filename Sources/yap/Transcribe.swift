@@ -18,7 +18,18 @@ import Speech
 
     @Argument(
         help: "Path to an audio or video file to transcribe.",
-        transform: URL.init(fileURLWithPath:)
+        transform: { path in
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            do {
+                let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey, .isReadableKey])
+                guard resourceValues.isRegularFile == true, resourceValues.isReadable == true else {
+                    throw ValidationError("Input file is not a valid, readable file: \(path)")
+                }
+                return url
+            } catch {
+                throw ValidationError("Error validating file: \(path), error: \(error.localizedDescription)")
+            }
+        }
     ) var inputFile: URL
 
     @Flag(
@@ -86,7 +97,18 @@ import Speech
 
         let analyzer = SpeechAnalyzer(modules: modules)
 
-        let audioFile = try AVAudioFile(forReading: inputFile)
+        let audioFile: AVAudioFile
+            do {
+                audioFile = try AVAudioFile(forReading: inputFile)
+            } catch {
+                noora.error(.alert("""
+                    Input file exists but is not a recognized or decodable audio format:
+                    \(inputFile.path)
+
+                    Underlying error: \(error.localizedDescription)
+                    """))
+                throw Error.invalidAudioFormat
+            }
         let audioFileDuration: TimeInterval = Double(audioFile.length) / audioFile.processingFormat.sampleRate
         try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
 
@@ -136,5 +158,6 @@ import Speech
 extension Transcribe {
     enum Error: Swift.Error {
         case unsupportedLocale
+        case invalidAudioFormat
     }
 }
