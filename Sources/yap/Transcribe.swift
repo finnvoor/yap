@@ -177,7 +177,60 @@ import Speech
         
         let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
         
-        // Get the text to translate
+        // Try to preserve sentence structure with time ranges for SRT format
+        let sentencesWithTimeRanges = transcript.sentences()
+        
+        // If we have sentences with time ranges (needed for SRT), translate them individually
+        if !sentencesWithTimeRanges.isEmpty {
+            var translatedSentences: [AttributedString] = []
+            
+            // Store session reference for the closure
+            nonisolated(unsafe) let translationSession = session
+            
+            do {
+                try await noora.progressStep(
+                    message: "Translating from \(sourceLanguage.maximalIdentifier) to \(targetLanguage.maximalIdentifier)…",
+                    successMessage: "Translation completed: \(sourceLanguage.maximalIdentifier) → \(targetLanguage.maximalIdentifier)",
+                    errorMessage: "Failed to translate from \(sourceLanguage.maximalIdentifier) to \(targetLanguage.maximalIdentifier)",
+                    showSpinner: true
+                ) { @Sendable progressHandler in
+                    for (index, sentence) in sentencesWithTimeRanges.enumerated() {
+                        let text = String(sentence.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else { continue }
+                        
+                        let request = TranslationSession.Request(sourceText: text)
+                        let responses = try await translationSession.translations(from: [request])
+                        
+                        if let response = responses.first {
+                            var translatedSentence = AttributedString(response.targetText)
+                            // Preserve audio time range from original sentence
+                            if let timeRange = sentence.audioTimeRange {
+                                translatedSentence[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] = timeRange
+                            }
+                            await MainActor.run {
+                                translatedSentences.append(translatedSentence)
+                            }
+                        }
+                        
+                        let progress = Double(index + 1) / Double(sentencesWithTimeRanges.count)
+                        let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+                        progressHandler("[\(percent)] Translated \(index + 1)/\(sentencesWithTimeRanges.count) segments")
+                    }
+                }
+            } catch {
+                noora.error(.alert("Translation failed: \(error.localizedDescription)"))
+                throw Error.unsupportedTranslation
+            }
+            
+            // Combine translated sentences preserving attributes
+            var result = AttributedString()
+            for sentence in translatedSentences {
+                result += sentence
+            }
+            return result
+        }
+        
+        // Fallback: For plain text (TXT format), translate without time ranges
         let fullText = String(transcript.characters).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fullText.isEmpty else {
             noora.error(.alert("No text to translate."))
