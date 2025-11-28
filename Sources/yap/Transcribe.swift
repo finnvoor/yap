@@ -2,6 +2,7 @@ import ArgumentParser
 import NaturalLanguage
 @preconcurrency import Noora
 import Speech
+@preconcurrency import Translation
 
 // MARK: - Transcribe
 
@@ -15,6 +16,12 @@ import Speech
     @Flag(
         help: "Replaces certain words and phrases with a redacted form."
     ) var censor: Bool = false
+
+    @Option(
+        name: .customLong("output-locale"),
+        help: "Locale to translate the transcription to (e.g., de_DE, fr_FR, es_ES). Use -ol as shorthand.",
+        transform: Locale.init(identifier:)
+    ) var outputLocale: Locale?
 
     @Argument(
         help: "Path to an audio or video file to transcribe.",
@@ -116,6 +123,16 @@ import Speech
             }
         }
 
+        // Translate if output locale is specified
+        if let outputLocale {
+            transcript = try await translateTranscript(
+                transcript,
+                from: locale,
+                to: outputLocale,
+                noora: noora
+            )
+        }
+
         if let outputFile {
             try outputFormat.text(for: transcript, maxLength: maxLength).write(
                 to: outputFile,
@@ -129,6 +146,96 @@ import Speech
             print(outputFormat.text(for: transcript, maxLength: maxLength))
         }
     }
+
+    // MARK: Private
+
+    private func translateTranscript(
+        _ transcript: AttributedString,
+        from sourceLocale: Locale,
+        to targetLocale: Locale,
+        noora: Noora
+    ) async throws -> AttributedString {
+        let sourceLanguage = sourceLocale.language
+        let targetLanguage = targetLocale.language
+        
+        let availability = LanguageAvailability()
+        let status = await availability.status(from: sourceLanguage, to: targetLanguage)
+        
+        switch status {
+        case .unsupported:
+            noora.error(.alert("Translation from \(sourceLanguage.maximalIdentifier) to \(targetLanguage.maximalIdentifier) is not supported."))
+            throw Error.unsupportedTranslation
+        case .supported:
+            noora.error(.alert("Translation model not installed. Please install \(sourceLanguage.maximalIdentifier) → \(targetLanguage.maximalIdentifier) translation in System Settings > General > Language & Region > Translation Languages."))
+            throw Error.unsupportedTranslation
+        case .installed:
+            break
+        @unknown default:
+            noora.error(.alert("Unknown translation status for \(sourceLanguage.maximalIdentifier) → \(targetLanguage.maximalIdentifier)."))
+            throw Error.unsupportedTranslation
+        }
+        
+        let session = TranslationSession(installedSource: sourceLanguage, target: targetLanguage)
+        
+        // Get the text to translate
+        let fullText = String(transcript.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fullText.isEmpty else {
+            noora.error(.alert("No text to translate."))
+            throw Error.unsupportedTranslation
+        }
+        
+        // Split into sentences for progress tracking and better translation quality
+        let sentences = fullText.split(separator: "\n", omittingEmptySubsequences: true)
+            .flatMap { $0.split(separator: "。", omittingEmptySubsequences: true) }
+            .flatMap { $0.split(separator: ". ", omittingEmptySubsequences: true) }
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        let chunksToTranslate = sentences.isEmpty ? [fullText] : sentences
+        var translatedTexts: [String] = []
+        
+        // Store session reference for the closure
+        nonisolated(unsafe) let translationSession = session
+        
+        do {
+            try await noora.progressStep(
+                message: "Translating from \(sourceLanguage.maximalIdentifier) to \(targetLanguage.maximalIdentifier)…",
+                successMessage: "Translation completed: \(sourceLanguage.maximalIdentifier) → \(targetLanguage.maximalIdentifier)",
+                errorMessage: "Failed to translate from \(sourceLanguage.maximalIdentifier) to \(targetLanguage.maximalIdentifier)",
+                showSpinner: true
+            ) { @Sendable progressHandler in
+                for (index, text) in chunksToTranslate.enumerated() {
+                    let request = TranslationSession.Request(sourceText: text)
+                    do {
+                        let responses = try await translationSession.translations(from: [request])
+                        
+                        if let response = responses.first {
+                            await MainActor.run {
+                                translatedTexts.append(response.targetText)
+                            }
+                        }
+                    } catch {
+                        // Log the actual error for debugging
+                        print("Translation error for chunk \(index): \(error)")
+                        throw error
+                    }
+                    
+                    let progress = Double(index + 1) / Double(chunksToTranslate.count)
+                    let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+                    progressHandler("[\(percent)] Translated \(index + 1)/\(chunksToTranslate.count) segments")
+                }
+            }
+        } catch {
+            noora.error(.alert("Translation failed: \(error.localizedDescription)"))
+            throw Error.unsupportedTranslation
+        }
+        
+        // Combine translated texts back into a single AttributedString
+        let combinedText = translatedTexts.joined(separator: " ")
+        let result = AttributedString(combinedText)
+        
+        return result
+    }
 }
 
 // MARK: Transcribe.Error
@@ -136,5 +243,6 @@ import Speech
 extension Transcribe {
     enum Error: Swift.Error {
         case unsupportedLocale
+        case unsupportedTranslation
     }
 }
