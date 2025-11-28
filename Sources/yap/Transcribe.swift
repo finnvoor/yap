@@ -133,8 +133,12 @@ import Speech
             )
         }
 
+        // When using translation with SRT, use a very large maxLength to prevent re-splitting
+        // translated sentences which already have correct time ranges
+        let effectiveMaxLength = (outputLocale != nil && outputFormat == .srt) ? 9999 : maxLength
+        
         if let outputFile {
-            try outputFormat.text(for: transcript, maxLength: maxLength).write(
+            try outputFormat.text(for: transcript, maxLength: effectiveMaxLength).write(
                 to: outputFile,
                 atomically: false,
                 encoding: .utf8
@@ -143,7 +147,7 @@ import Speech
         }
 
         if piped || outputFile == nil {
-            print(outputFormat.text(for: transcript, maxLength: maxLength))
+            print(outputFormat.text(for: transcript, maxLength: effectiveMaxLength))
         }
     }
 
@@ -222,10 +226,16 @@ import Speech
                 throw Error.unsupportedTranslation
             }
             
-            // Combine translated sentences preserving attributes
+            // For SRT format: return sentences as single characters with line breaks
+            // This prevents NLTokenizer from finding sentence boundaries within our translations
+            // Each translated segment should map 1:1 to an original time-ranged segment
             var result = AttributedString()
-            for sentence in translatedSentences {
+            for (index, sentence) in translatedSentences.enumerated() {
                 result += sentence
+                // Add two spaces to separate sentences - this prevents NLTokenizer from merging
+                if index < translatedSentences.count - 1 {
+                    result += AttributedString("  ")
+                }
             }
             return result
         }
