@@ -45,9 +45,15 @@ import Speech
             Noora()
         }
 
-        let supported = await SpeechTranscriber.supportedLocales
-        guard supported.map({ $0.identifier(.bcp47) }).contains(locale.identifier(.bcp47)) else {
-            noora.error(.alert("Locale \"\(locale.identifier)\" is not supported. Supported locales:\n\(supported.map(\.identifier))"))
+        let speechTranscriberIsAvailable = SpeechTranscriber.isAvailable
+        guard speechTranscriberIsAvailable else {
+            noora.error(.alert("SpeechTranscriber is not available on this device"))
+            throw Error.speechTranscriberNotAvailable
+        }
+
+        let supportedLocales = await SpeechTranscriber.supportedLocales
+        guard supportedLocales.map({ $0.identifier(.bcp47) }).contains(locale.identifier(.bcp47)) else {
+            noora.error(.alert("Locale \"\(locale.identifier)\" is not supported. Supported locales:\n\(supportedLocales.map(\.identifier))"))
             throw Error.unsupportedLocale
         }
 
@@ -136,5 +142,6 @@ import Speech
 extension Transcribe {
     enum Error: Swift.Error {
         case unsupportedLocale
+        case speechTranscriberNotAvailable
     }
 }
