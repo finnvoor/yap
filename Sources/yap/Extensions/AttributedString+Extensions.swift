@@ -50,13 +50,12 @@ extension AttributedString {
                 !String(self[$0.range].characters)
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }.compactMap(\.audioTimeRange)
-            guard !audioTimeRanges.isEmpty else { return nil }
-            let start = audioTimeRanges.first!.start
-            let end = audioTimeRanges.last!.end
+            guard let first = audioTimeRanges.first,
+                  let last = audioTimeRanges.last else { return nil }
             var attributes = AttributeContainer()
             attributes[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] = CMTimeRange(
-                start: start,
-                end: end
+                start: first.start,
+                end: last.end
             )
             return AttributedString(self[range].characters, attributes: attributes)
         }

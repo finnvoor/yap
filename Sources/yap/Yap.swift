@@ -1,7 +1,4 @@
 import ArgumentParser
-import NaturalLanguage
-@preconcurrency import Noora
-import Speech
 
 // MARK: - yap
 
