@@ -27,7 +27,7 @@ OPTIONS:
 #### Homebrew
 
 ```bash
-brew install finnvoor/tools/yap
+brew install yap
 ```
 
 #### Mint
@@ -54,4 +54,20 @@ yap video.mp4 | uvx llm -m mlx-community/Llama-3.2-1B-Instruct-4bit 'Summarize t
 
 ```bash
 yap video.mp4 --srt -o captions.srt
+```
+
+### MCP Server
+
+yap includes an [MCP](https://modelcontextprotocol.io) server that exposes a `transcribe` tool, allowing any MCP-compatible agent to transcribe audio and video files.
+
+#### Claude Code
+
+```bash
+claude mcp add yap -- yap mcp
+```
+
+#### Codex
+
+```bash
+codex mcp add yap -- yap mcp
 ```

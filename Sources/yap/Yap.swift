@@ -6,7 +6,8 @@ import ArgumentParser
     static let configuration = CommandConfiguration(
         abstract: "A CLI for on-device speech transcription.",
         subcommands: [
-            Transcribe.self
+            Transcribe.self,
+            MCP_Command.self,
         ],
         defaultSubcommand: Transcribe.self
     )
