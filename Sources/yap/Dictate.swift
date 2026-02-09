@@ -135,7 +135,7 @@ struct Dictate: AsyncParsableCommand {
 
 // MARK: - MicrophoneCapture
 
-private final class MicrophoneCapture: @unchecked Sendable {
+final class MicrophoneCapture: @unchecked Sendable {
     let audioEngine: AVAudioEngine
     let converter: AVAudioConverter
     let inputContinuation: AsyncStream<AnalyzerInput>.Continuation
