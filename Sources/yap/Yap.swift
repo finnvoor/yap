@@ -7,6 +7,7 @@ import ArgumentParser
         abstract: "A CLI for on-device speech transcription.",
         subcommands: [
             Transcribe.self,
+            Listen.self,
             MCP_Command.self,
         ],
         defaultSubcommand: Transcribe.self

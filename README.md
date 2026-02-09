@@ -56,6 +56,31 @@ yap video.mp4 | uvx llm -m mlx-community/Llama-3.2-1B-Instruct-4bit 'Summarize t
 yap video.mp4 --srt -o captions.srt
 ```
 
+### Live System Audio
+
+`yap listen` transcribes system audio in real time — anything playing on your computer.
+
+```
+USAGE: yap listen [--locale <locale>] [--censor]
+
+OPTIONS:
+  -l, --locale <locale>   (default: current)
+  --censor                Replaces certain words and phrases with a redacted form.
+  -h, --help              Show help information.
+```
+
+> Screen Recording permission is required. Grant it to your terminal app in System Settings > Privacy & Security > Screen Recording.
+
+#### Examples
+
+```bash
+# Transcribe system audio live
+yap listen
+
+# Pipe live transcription to another tool
+yap listen | uvx llm 'Translate this to French:'
+```
+
 ### MCP Server
 
 yap includes an [MCP](https://modelcontextprotocol.io) server that exposes a `transcribe` tool, allowing any MCP-compatible agent to transcribe audio and video files.
