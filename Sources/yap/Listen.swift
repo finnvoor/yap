@@ -135,6 +135,16 @@ struct Listen: AsyncParsableCommand {
         let signalReadFD = signalPipe[0]
         listenSignalWriteFD = signalPipe[1]
 
+        // Suppress ^C echo
+        var originalTermios = termios()
+        let hasTerminal = isatty(STDIN_FILENO) != 0
+        if hasTerminal {
+            tcgetattr(STDIN_FILENO, &originalTermios)
+            var raw = originalTermios
+            raw.c_lflag &= ~UInt(ECHOCTL)
+            tcsetattr(STDIN_FILENO, TCSANOW, &raw)
+        }
+
         signal(SIGINT) { _ in
             _ = write(listenSignalWriteFD, "x", 1)
         }
@@ -145,11 +155,16 @@ struct Listen: AsyncParsableCommand {
 
         // Wait for SIGINT in background, then gracefully shut down
         nonisolated(unsafe) let streamToStop = stream
+        nonisolated(unsafe) var savedTermios = originalTermios
+        let restoreTerminal = hasTerminal
         Task.detached {
             var buf: UInt8 = 0
             _ = read(signalReadFD, &buf, 1)
             close(signalReadFD)
             close(listenSignalWriteFD)
+            if restoreTerminal {
+                tcsetattr(STDIN_FILENO, TCSANOW, &savedTermios)
+            }
             try? await streamToStop.stopCapture()
             inputContinuation.finish()
             try? await analyzer.finalizeAndFinishThroughEndOfInput()
@@ -163,6 +178,7 @@ struct Listen: AsyncParsableCommand {
                 fflush(stdout)
             }
         }
+        print()
     }
 }
 
