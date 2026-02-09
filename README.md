@@ -81,6 +81,31 @@ yap listen
 yap listen | uvx llm 'Translate this to French:'
 ```
 
+### Listen and Dictate
+
+`yap listen-and-dictate` transcribes both system audio and microphone input simultaneously — perfect for meeting transcription.
+
+```
+USAGE: yap listen-and-dictate [--locale <locale>] [--censor]
+
+OPTIONS:
+  -l, --locale <locale>   (default: current)
+  --censor                Replaces certain words and phrases with a redacted form.
+  -h, --help              Show help information.
+```
+
+> Both Screen Recording and Microphone permissions are required. Grant them to your terminal app in System Settings > Privacy & Security.
+
+#### Examples
+
+```bash
+# Transcribe a video call (both sides)
+yap listen-and-dictate
+
+# Save a meeting transcript
+yap listen-and-dictate > meeting.txt
+```
+
 ### Dictation
 
 `yap dictate` transcribes microphone input in real time.

@@ -168,7 +168,7 @@ struct Listen: AsyncParsableCommand {
 
 // MARK: - AudioStreamDelegate
 
-private final class AudioStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
+final class AudioStreamDelegate: NSObject, SCStreamOutput, @unchecked Sendable {
     // MARK: Lifecycle
 
     init(targetFormat: AVAudioFormat, inputContinuation: AsyncStream<AnalyzerInput>.Continuation) {
