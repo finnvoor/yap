@@ -81,6 +81,31 @@ yap listen
 yap listen | uvx llm 'Translate this to French:'
 ```
 
+### Dictation
+
+`yap dictate` transcribes microphone input in real time.
+
+```
+USAGE: yap dictate [--locale <locale>] [--censor]
+
+OPTIONS:
+  -l, --locale <locale>   (default: current)
+  --censor                Replaces certain words and phrases with a redacted form.
+  -h, --help              Show help information.
+```
+
+> Microphone permission is required. Grant it to your terminal app in System Settings > Privacy & Security > Microphone.
+
+#### Examples
+
+```bash
+# Dictate from your microphone
+yap dictate
+
+# Dictate and save to a file
+yap dictate > notes.txt
+```
+
 ### MCP Server
 
 yap includes an [MCP](https://modelcontextprotocol.io) server that exposes a `transcribe` tool, allowing any MCP-compatible agent to transcribe audio and video files.

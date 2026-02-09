@@ -8,6 +8,7 @@ import ArgumentParser
         subcommands: [
             Transcribe.self,
             Listen.self,
+            Dictate.self,
             MCP_Command.self,
         ],
         defaultSubcommand: Transcribe.self

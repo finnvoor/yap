@@ -5,6 +5,8 @@ import CoreMedia
 import ScreenCaptureKit
 import Speech
 
+private nonisolated(unsafe) var listenSignalWriteFD: Int32 = -1
+
 // MARK: - Listen
 
 struct Listen: AsyncParsableCommand {
@@ -127,12 +129,30 @@ struct Listen: AsyncParsableCommand {
         // Start the analyzer with streaming input
         try await analyzer.start(inputSequence: inputSequence)
 
+        // Set up graceful shutdown
+        var signalPipe: [Int32] = [0, 0]
+        pipe(&signalPipe)
+        let signalReadFD = signalPipe[0]
+        listenSignalWriteFD = signalPipe[1]
+
         signal(SIGINT) { _ in
-            _exit(0)
+            _ = write(listenSignalWriteFD, "x", 1)
         }
 
         if isatty(STDERR_FILENO) != 0 {
             FileHandle.standardError.write(Data("Listening… Press Ctrl+C to stop.\n".utf8))
+        }
+
+        // Wait for SIGINT in background, then gracefully shut down
+        nonisolated(unsafe) let streamToStop = stream
+        Task.detached {
+            var buf: UInt8 = 0
+            _ = read(signalReadFD, &buf, 1)
+            close(signalReadFD)
+            close(listenSignalWriteFD)
+            try? await streamToStop.stopCapture()
+            inputContinuation.finish()
+            try? await analyzer.finalizeAndFinishThroughEndOfInput()
         }
 
         // Print results as they arrive
