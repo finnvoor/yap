@@ -25,6 +25,27 @@ struct ListenAndDictate: AsyncParsableCommand {
         help: "Replaces certain words and phrases with a redacted form."
     ) var censor: Bool = false
 
+    @Flag(
+        help: "Output format for the transcription."
+    ) var outputFormat: OutputFormat = .txt
+
+    @Option(
+        name: .shortAndLong,
+        help: "Maximum sentence length in characters for timed output formats."
+    ) var maxLength: Int = 40
+
+    @Option(
+        help: "Speaker label for microphone audio in timed output formats."
+    ) var micLabel: String = "Mic"
+
+    @Option(
+        help: "Speaker label for system audio in timed output formats."
+    ) var systemLabel: String = "System"
+
+    @Flag(
+        help: "Include word-level timestamps in JSON output."
+    ) var wordTimestamps: Bool = false
+
     @MainActor mutating func run() async throws {
         guard SpeechTranscriber.isAvailable else {
             throw Transcribe.Error.speechTranscriberNotAvailable
@@ -41,18 +62,19 @@ struct ListenAndDictate: AsyncParsableCommand {
         try await AssetInventory.reserve(locale: locale)
 
         let transcriptionOptions: Set<SpeechTranscriber.TranscriptionOption> = censor ? [.etiquetteReplacements] : []
+        let attributeOptions: Set<SpeechTranscriber.ResultAttributeOption> = outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
 
         let micTranscriber = SpeechTranscriber(
             locale: locale,
             transcriptionOptions: transcriptionOptions,
             reportingOptions: [],
-            attributeOptions: []
+            attributeOptions: attributeOptions
         )
         let sysTranscriber = SpeechTranscriber(
             locale: locale,
             transcriptionOptions: transcriptionOptions,
             reportingOptions: [],
-            attributeOptions: []
+            attributeOptions: attributeOptions
         )
         let modules: [any SpeechModule] = [micTranscriber, sysTranscriber]
 
@@ -192,27 +214,91 @@ struct ListenAndDictate: AsyncParsableCommand {
             try? await sysAnalyzer.finalizeAndFinishThroughEndOfInput()
         }
 
-        // Merge results from both transcribers
-        try await withThrowingDiscardingTaskGroup { group in
-            group.addTask {
-                for try await result in micTranscriber.results {
-                    let text = String(result.text.characters)
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        print(text, terminator: "")
+        // Stream results as they arrive
+        let format = outputFormat
+        let sentenceMaxLength = maxLength
+        if format == .txt {
+            try await withThrowingDiscardingTaskGroup { group in
+                group.addTask {
+                    for try await result in micTranscriber.results {
+                        let text = String(result.text.characters)
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            print(text, terminator: "")
+                            fflush(stdout)
+                        }
+                    }
+                }
+                group.addTask {
+                    for try await result in sysTranscriber.results {
+                        let text = String(result.text.characters)
+                        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            print(text, terminator: "")
+                            fflush(stdout)
+                        }
+                    }
+                }
+            }
+            print()
+        } else {
+            let micSpeaker = micLabel
+            let sysSpeaker = systemLabel
+            if let header = format.header(locale: locale, speakers: [micSpeaker, sysSpeaker]) {
+                print(header)
+            }
+
+            // Merge both transcriber outputs into a single stream for serialized output
+            enum TaggedResult: Sendable {
+                case mic(AttributedString)
+                case sys(AttributedString)
+            }
+            let (mergedStream, mergedContinuation) = AsyncStream.makeStream(of: TaggedResult.self)
+
+            Task {
+                try? await withThrowingDiscardingTaskGroup { group in
+                    group.addTask {
+                        for try await result in micTranscriber.results {
+                            mergedContinuation.yield(.mic(result.text))
+                        }
+                    }
+                    group.addTask {
+                        for try await result in sysTranscriber.results {
+                            mergedContinuation.yield(.sys(result.text))
+                        }
+                    }
+                }
+                mergedContinuation.finish()
+            }
+
+            let includeWords = wordTimestamps
+            var segmentIndex = 0
+            for await tagged in mergedStream {
+                let (attributedText, speaker): (AttributedString, String) = switch tagged {
+                case let .mic(t): (t, micSpeaker)
+                case let .sys(t): (t, sysSpeaker)
+                }
+                for chunk in attributedText.splitAtTimeGaps(threshold: 1.5) {
+                    let allWords = includeWords ? chunk.wordTimestamps() : nil
+                    for sentence in chunk.sentences(maxLength: sentenceMaxLength) {
+                        guard let timeRange = sentence.audioTimeRange else { continue }
+                        let text = String(sentence.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else { continue }
+                        let words = allWords?.filter {
+                            $0.timeRange.start.seconds >= timeRange.start.seconds
+                                && $0.timeRange.end.seconds <= timeRange.end.seconds
+                        }
+                        if segmentIndex > 0, let sep = format.segmentSeparator {
+                            print(sep, terminator: "")
+                        }
+                        segmentIndex += 1
+                        print(format.formatSegment(index: segmentIndex, timeRange: timeRange, text: text, speaker: speaker, words: words), terminator: "")
                         fflush(stdout)
                     }
                 }
             }
-            group.addTask {
-                for try await result in sysTranscriber.results {
-                    let text = String(result.text.characters)
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        print(text, terminator: "")
-                        fflush(stdout)
-                    }
-                }
+            if segmentIndex > 0 { print() }
+            if let footer = format.footer {
+                print(footer)
             }
         }
-        print()
     }
 }

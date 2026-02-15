@@ -24,6 +24,19 @@ struct Listen: AsyncParsableCommand {
         help: "Replaces certain words and phrases with a redacted form."
     ) var censor: Bool = false
 
+    @Flag(
+        help: "Output format for the transcription."
+    ) var outputFormat: OutputFormat = .txt
+
+    @Option(
+        name: .shortAndLong,
+        help: "Maximum sentence length in characters for timed output formats."
+    ) var maxLength: Int = 40
+
+    @Flag(
+        help: "Include word-level timestamps in JSON output."
+    ) var wordTimestamps: Bool = false
+
     @MainActor mutating func run() async throws {
         guard SpeechTranscriber.isAvailable else {
             throw Transcribe.Error.speechTranscriberNotAvailable
@@ -43,7 +56,7 @@ struct Listen: AsyncParsableCommand {
             locale: locale,
             transcriptionOptions: censor ? [.etiquetteReplacements] : [],
             reportingOptions: [],
-            attributeOptions: []
+            attributeOptions: outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
         )
         let modules: [any SpeechModule] = [transcriber]
 
@@ -170,15 +183,49 @@ struct Listen: AsyncParsableCommand {
             try? await analyzer.finalizeAndFinishThroughEndOfInput()
         }
 
-        // Print results as they arrive
-        for try await result in transcriber.results {
-            let text = String(result.text.characters)
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                print(text, terminator: "")
-                fflush(stdout)
+        // Stream results as they arrive
+        let format = outputFormat
+        let sentenceMaxLength = maxLength
+        if format == .txt {
+            for try await result in transcriber.results {
+                let text = String(result.text.characters)
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    print(text, terminator: "")
+                    fflush(stdout)
+                }
+            }
+            print()
+        } else {
+            if let header = format.header(locale: locale) {
+                print(header)
+            }
+            let includeWords = wordTimestamps
+            var segmentIndex = 0
+            for try await result in transcriber.results {
+                for chunk in result.text.splitAtTimeGaps(threshold: 1.5) {
+                    let allWords = includeWords ? chunk.wordTimestamps() : nil
+                    for sentence in chunk.sentences(maxLength: sentenceMaxLength) {
+                        guard let timeRange = sentence.audioTimeRange else { continue }
+                        let text = String(sentence.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !text.isEmpty else { continue }
+                        let words = allWords?.filter {
+                            $0.timeRange.start.seconds >= timeRange.start.seconds
+                                && $0.timeRange.end.seconds <= timeRange.end.seconds
+                        }
+                        if segmentIndex > 0, let sep = format.segmentSeparator {
+                            print(sep, terminator: "")
+                        }
+                        segmentIndex += 1
+                        print(format.formatSegment(index: segmentIndex, timeRange: timeRange, text: text, words: words), terminator: "")
+                        fflush(stdout)
+                    }
+                }
+            }
+            if segmentIndex > 0 { print() }
+            if let footer = format.footer {
+                print(footer)
             }
         }
-        print()
     }
 }
 

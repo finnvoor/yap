@@ -35,18 +35,23 @@ struct MCP_Command: AsyncParsableCommand {
                             ]),
                             "format": .object([
                                 "type": "string",
-                                "description": "Output format: \"txt\" or \"srt\".",
+                                "description": "Output format: \"txt\", \"srt\", \"vtt\", or \"json\".",
                                 "default": "txt",
-                                "enum": .array(["txt", "srt"]),
+                                "enum": .array(["txt", "srt", "vtt", "json"]),
                             ]),
                             "maxLength": .object([
                                 "type": "integer",
-                                "description": "Maximum sentence length in characters for SRT output.",
+                                "description": "Maximum sentence length in characters for timed output formats.",
                                 "default": 40,
                             ]),
                             "censor": .object([
                                 "type": "boolean",
                                 "description": "Replace certain words with a redacted form.",
+                                "default": false,
+                            ]),
+                            "wordTimestamps": .object([
+                                "type": "boolean",
+                                "description": "Include word-level timestamps in JSON output.",
                                 "default": false,
                             ]),
                         ]),
@@ -74,6 +79,8 @@ struct MCP_Command: AsyncParsableCommand {
             if let format = request.arguments?["format"]?.stringValue {
                 switch format {
                 case "srt": options.outputFormat = .srt
+                case "vtt": options.outputFormat = .vtt
+                case "json": options.outputFormat = .json
                 default: options.outputFormat = .txt
                 }
             }
@@ -84,6 +91,10 @@ struct MCP_Command: AsyncParsableCommand {
 
             if let censor = request.arguments?["censor"]?.boolValue {
                 options.censor = censor
+            }
+
+            if let wordTimestamps = request.arguments?["wordTimestamps"]?.boolValue {
+                options.wordTimestamps = wordTimestamps
             }
 
             do {
