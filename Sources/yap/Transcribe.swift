@@ -36,6 +36,10 @@ import Speech
         help: "Maximum sentence length in characters. If not provided, it will be set to 40.",
     ) var maxLength: Int = 40
 
+    @Flag(
+        help: "Include word-level timestamps in JSON output."
+    ) var wordTimestamps: Bool = false
+
     mutating func run() async throws {
         guard FileManager.default.fileExists(atPath: inputFile.path) else {
             throw ValidationError("File not found: \(inputFile.path)")
@@ -110,6 +114,7 @@ import Speech
         } else { 64 }
 
         let formatPrimary: @Sendable (String) -> String = { noora.format("\(.primary($0))") }
+        let useOSCProgress = isatty(STDERR_FILENO) != 0
         try await noora.progressStep(
             message: "Transcribing audio using locale: \"\(locale.identifier)\"…",
             successMessage: "Audio transcribed using locale: \"\(locale.identifier)\"",
@@ -122,14 +127,21 @@ import Speech
                 }
                 let progress = min(max(result.resultsFinalizationTime.seconds / audioFileDuration, 0), 1)
                 let percent = Int(progress * 100)
+                if useOSCProgress {
+                    FileHandle.standardError.write(Data("\u{1b}]9;4;1;\(percent)\u{7}".utf8))
+                }
                 let preview = String(result.text.characters).trimmingCharacters(in: .whitespaces)
                 let message = "\(formatPrimary("[\(String(format: "%3d%%", percent))]")) \(preview.prefix(terminalColumns - "⠋ [100%] ".count))"
                 progressHandler(message)
             }
         }
+        if useOSCProgress {
+            FileHandle.standardError.write(Data("\u{1b}]9;4;0\u{7}".utf8))
+        }
 
+        let output = outputFormat.text(for: transcript, maxLength: maxLength, locale: locale, wordTimestamps: wordTimestamps)
         if let outputFile {
-            try outputFormat.text(for: transcript, maxLength: maxLength).write(
+            try output.write(
                 to: outputFile,
                 atomically: false,
                 encoding: .utf8
@@ -138,7 +150,7 @@ import Speech
         }
 
         if piped || outputFile == nil {
-            print(outputFormat.text(for: transcript, maxLength: maxLength))
+            print(output)
         }
     }
 }

@@ -9,6 +9,7 @@ enum TranscriptionEngine {
         var censor: Bool = false
         var outputFormat: OutputFormat = .txt
         var maxLength: Int = 40
+        var wordTimestamps: Bool = false
     }
 
     static func transcribe(
@@ -57,7 +58,7 @@ enum TranscriptionEngine {
             transcript += result.text
         }
 
-        return options.outputFormat.text(for: transcript, maxLength: options.maxLength)
+        return options.outputFormat.text(for: transcript, maxLength: options.maxLength, locale: options.locale, wordTimestamps: options.wordTimestamps)
     }
 }
 
