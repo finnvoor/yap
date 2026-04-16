@@ -50,15 +50,39 @@ enum TranscriptionEngine {
         }
 
         let analyzer = SpeechAnalyzer(modules: modules)
-        let audioFile = try AVAudioFile(forReading: file)
-        try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
+        let asset = AVURLAsset(url: file, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
 
-        var transcript: AttributedString = ""
-        for try await result in transcriber.results {
-            transcript += result.text
+        // 1. Extract audio
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        try await AudioExtractor.extractAudio(from: asset, to: tempURL)
+
+        let audioFile = try AVAudioFile(forReading: tempURL)
+        
+        actor TranscriptCollector {
+            var transcript: AttributedString = ""
+            func append(_ text: AttributedString) { transcript += text }
+            func getFinalTranscript() -> AttributedString { transcript }
+        }
+        let collector = TranscriptCollector()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
+            }
+
+            group.addTask {
+                for try await result in transcriber.results {
+                    await collector.append(result.text)
+                }
+            }
+
+            try await group.waitForAll()
         }
 
-        return options.outputFormat.text(for: transcript, maxLength: options.maxLength, locale: options.locale, wordTimestamps: options.wordTimestamps)
+        let finalTranscript = await collector.getFinalTranscript()
+        return options.outputFormat.text(for: finalTranscript, maxLength: options.maxLength, locale: options.locale, wordTimestamps: options.wordTimestamps)
     }
 }
 
