@@ -2,10 +2,11 @@ import ArgumentParser
 import NaturalLanguage
 @preconcurrency import Noora
 import Speech
+import AVFoundation
 
 // MARK: - Transcribe
 
-@MainActor struct Transcribe: AsyncParsableCommand {
+struct Transcribe: AsyncParsableCommand {
     @Option(
         name: .shortAndLong,
         help: "(default: current)",
@@ -40,7 +41,7 @@ import Speech
         help: "Include word-level timestamps in JSON output."
     ) var wordTimestamps: Bool = false
 
-    mutating func run() async throws {
+    func run() async throws {
         guard FileManager.default.fileExists(atPath: inputFile.path) else {
             throw ValidationError("File not found: \(inputFile.path)")
         }
@@ -53,7 +54,7 @@ import Speech
             Noora()
         }
 
-        guard SpeechTranscriber.isAvailable else {
+        if !SpeechTranscriber.isAvailable {
             noora.error(.alert("SpeechTranscriber is not available on this device"))
             throw Error.speechTranscriberNotAvailable
         }
@@ -76,6 +77,7 @@ import Speech
             attributeOptions: outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
         )
         let modules: [any SpeechModule] = [transcriber]
+        
         let installedLocales = await SpeechTranscriber.installedLocales
         if !installedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
@@ -86,7 +88,7 @@ import Speech
                         let callAsFunction: (Double) -> Void
                     }
                     let reportProgress = ReportProgress(callAsFunction: progressCallback)
-                    try await withThrowingDiscardingTaskGroup { group in
+                    try await withThrowingTaskGroup(of: Void.self) { group in
                         group.addTask {
                             while !Task.isCancelled, !request.progress.isFinished {
                                 reportProgress.callAsFunction(request.progress.fractionCompleted)
@@ -100,52 +102,86 @@ import Speech
             }
         }
 
+        let asset = AVURLAsset(url: inputFile, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        
+        // 1. Extract audio
+        try await noora.progressStep(
+            message: "Extracting audio from file…",
+            successMessage: "Audio extracted",
+            errorMessage: "Failed to extract audio",
+            showSpinner: true
+        ) { _ in
+            try await AudioExtractor.extractAudio(from: asset, to: tempURL)
+        }
+
+        let audioFile = try AVAudioFile(forReading: tempURL)
+        let audioFileDuration = Double(audioFile.length) / audioFile.fileFormat.sampleRate
+
+        actor TranscriptCollector {
+            var transcript: AttributedString = ""
+            func append(_ text: AttributedString) { transcript += text }
+            func getFinalTranscript() -> AttributedString { transcript }
+        }
+        let collector = TranscriptCollector()
+
         let analyzer = SpeechAnalyzer(modules: modules)
-
-        let audioFile = try AVAudioFile(forReading: inputFile)
-        let audioFileDuration: TimeInterval = Double(audioFile.length) / audioFile.processingFormat.sampleRate
-        try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
-
-        var transcript: AttributedString = ""
+        let isPiped = isatty(STDERR_FILENO) != 0
+        let formatPrimary: @Sendable (String) -> String = { noora.format("\(.primary($0))") }
 
         var w = winsize()
         let terminalColumns = if ioctl(STDOUT_FILENO, UInt(TIOCGWINSZ), &w) == 0 {
             max(Int(w.ws_col), 9)
         } else { 64 }
 
-        let formatPrimary: @Sendable (String) -> String = { noora.format("\(.primary($0))") }
-        let useOSCProgress = isatty(STDERR_FILENO) != 0
+        // 2. Transcribe
         try await noora.progressStep(
             message: "Transcribing audio using locale: \"\(locale.identifier)\"…",
             successMessage: "Audio transcribed using locale: \"\(locale.identifier)\"",
             errorMessage: "Failed to transcribe audio using locale: \"\(locale.identifier)\"",
             showSpinner: true
-        ) { @Sendable progressHandler in
-            for try await result in transcriber.results {
-                await MainActor.run {
-                    transcript += result.text
+        ) { progressHandler in
+            // Both the analyzer and the results iterator must run concurrently: the
+            // analyzer drives the transcriber's results stream, so they must interleave.
+            // Using withThrowingTaskGroup ensures that a failure or stall in either task
+            // cancels the other — a standalone unstructured Task means the results loop
+            // hangs forever if the analyzer stops producing output (e.g. at 68%).
+            //
+            // The analyzer runs as a child task; the results loop runs in the group body.
+            // This keeps progressHandler non-escaping (called directly in the body) while
+            // still giving us structured, cooperative concurrency between the two.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
                 }
-                let progress = min(max(result.resultsFinalizationTime.seconds / audioFileDuration, 0), 1)
-                let percent = Int(progress * 100)
-                if useOSCProgress {
-                    FileHandle.standardError.write(Data("\u{1b}]9;4;1;\(percent)\u{7}".utf8))
+
+                for try await result in transcriber.results {
+                    await collector.append(result.text)
+
+                    let progress = min(max(result.resultsFinalizationTime.seconds / audioFileDuration, 0), 1)
+                    let percent = Int(progress * 100)
+                    if isPiped {
+                        FileHandle.standardError.write(Data("\u{1b}]9;4;1;\(percent)\u{7}".utf8))
+                    }
+                    let preview = String(result.text.characters).trimmingCharacters(in: .whitespaces)
+                    let message = "\(formatPrimary("[\(String(format: "%3d%%", percent))]")) \(preview.prefix(terminalColumns - "⠋ [100%] ".count))"
+                    progressHandler(message)
                 }
-                let preview = String(result.text.characters).trimmingCharacters(in: .whitespaces)
-                let message = "\(formatPrimary("[\(String(format: "%3d%%", percent))]")) \(preview.prefix(terminalColumns - "⠋ [100%] ".count))"
-                progressHandler(message)
+
+                try await group.waitForAll()
             }
         }
-        if useOSCProgress {
+
+        if isPiped {
             FileHandle.standardError.write(Data("\u{1b}]9;4;0\u{7}".utf8))
         }
 
-        let output = outputFormat.text(for: transcript, maxLength: maxLength, locale: locale, wordTimestamps: wordTimestamps)
+        let finalTranscript = await collector.getFinalTranscript()
+        let output = outputFormat.text(for: finalTranscript, maxLength: maxLength, locale: locale, wordTimestamps: wordTimestamps)
+        
         if let outputFile {
-            try output.write(
-                to: outputFile,
-                atomically: false,
-                encoding: .utf8
-            )
+            try output.write(to: outputFile, atomically: false, encoding: .utf8)
             noora.success(.alert("Transcription written to \(outputFile.path)"))
         }
 
