@@ -102,7 +102,9 @@ import Speech
 
         let analyzer = SpeechAnalyzer(modules: modules)
 
-        let audioFile = try AVAudioFile(forReading: inputFile)
+        let preparedAudioFile = try await TranscriptionAudioFile.prepare(inputFile)
+        defer { preparedAudioFile.removeTemporaryFile() }
+        let audioFile = preparedAudioFile.audioFile
         let audioFileDuration: TimeInterval = Double(audioFile.length) / audioFile.processingFormat.sampleRate
         try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
 
