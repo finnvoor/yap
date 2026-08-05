@@ -21,6 +21,9 @@ let package = Package(
                 .product(name: "Noora", package: "Noora"),
                 .product(name: "MCP", package: "swift-sdk"),
             ]
+            resources: [
+                .copy("Resources/man/yap.1")
+            ]
         )
     ]
 )

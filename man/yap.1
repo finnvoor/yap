@@ -1,0 +1,34 @@
+.TH YAP 1 "June 2025" "Yap 1.0" "User Commands"
+.SH NAME
+Yap \- transcribe audio or video files via the yap CLI
+.SH USAGE
+yap transcribe [\fB-l\fR \fB--locale\fR \fI<locale>\fR] [\fB--censor\fR] \fI<input-file>\fR [\fB--txt\fR|\fB--srt\fR] [\fB--output-file\fR \fI<output-file>\fR]
+
+.SH ARGUMENTS
+.TP
+\fB<input-file>\fR
+Path to an audio or video file to transcribe.
+
+.SH OPTIONS
+.TP
+\fB-l\fR, \fB--locale\fR \fI<locale>\fR
+Specify the locale (language and region) to use for transcription. Defaults to the current system locale.
+
+.TP
+\fB--censor\fR
+Replaces certain words and phrases in the transcript with redacted forms (e.g., ****).
+
+.TP
+\fB--txt\fR, \fB--srt\fR
+Select the output format for the transcription. Use \fB--txt\fR for plain text (default) or \fB--srt\fR for SubRip subtitle format.
+
+.TP
+\fB-o\fR, \fB--output-file\fR \fI<output-file>\fR
+Specify the path to save the transcription output. If omitted, output will be printed to standard output.
+
+.TP
+\fB-h\fR, \fB--help\fR
+Display help information and exit.
+
+.SH AUTHOR
+Finn Voorhees
