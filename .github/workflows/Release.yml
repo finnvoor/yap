@@ -7,7 +7,7 @@ on:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v3
       - name: Build

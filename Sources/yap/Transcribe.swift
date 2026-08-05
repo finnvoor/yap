@@ -10,7 +10,7 @@ import Speech
         name: .shortAndLong,
         help: "(default: current)",
         transform: Locale.init(identifier:)
-    ) var locale: Locale = .current
+    ) var locale: Locale = .init(identifier: Locale.current.identifier)
 
     @Flag(
         help: "Replaces certain words and phrases with a redacted form."
@@ -31,7 +31,20 @@ import Speech
         transform: URL.init(fileURLWithPath:)
     ) var outputFile: URL?
 
+    @Option(
+        name: .shortAndLong,
+        help: "Maximum sentence length in characters. If not provided, it will be set to 40.",
+    ) var maxLength: Int = 40
+
+    @Flag(
+        help: "Include word-level timestamps in JSON output."
+    ) var wordTimestamps: Bool = false
+
     mutating func run() async throws {
+        guard FileManager.default.fileExists(atPath: inputFile.path) else {
+            throw ValidationError("File not found: \(inputFile.path)")
+        }
+
         let piped = isatty(STDOUT_FILENO) == 0
         struct DevNull: StandardPipelining { func write(content _: String) {} }
         let noora = if piped {
@@ -40,11 +53,21 @@ import Speech
             Noora()
         }
 
-        let supported = await SpeechTranscriber.supportedLocales
-        guard supported.map({ $0.identifier(.bcp47) }).contains(locale.identifier(.bcp47)) else {
-            noora.error(.alert("Locale \(locale.identifier) is not supported"))
+        guard SpeechTranscriber.isAvailable else {
+            noora.error(.alert("SpeechTranscriber is not available on this device"))
+            throw Error.speechTranscriberNotAvailable
+        }
+
+        let supportedLocales = await SpeechTranscriber.supportedLocales
+        guard supportedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) else {
+            noora.error(.alert("Locale \"\(locale.identifier)\" is not supported. Supported locales:\n\(supportedLocales.map(\.identifier))"))
             throw Error.unsupportedLocale
         }
+
+        for locale in await AssetInventory.reservedLocales {
+            await AssetInventory.release(reservedLocale: locale)
+        }
+        try await AssetInventory.reserve(locale: locale)
 
         let transcriber = SpeechTranscriber(
             locale: locale,
@@ -53,30 +76,35 @@ import Speech
             attributeOptions: outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
         )
         let modules: [any SpeechModule] = [transcriber]
-        let installed = await Set(SpeechTranscriber.installedLocales)
-        if !installed.map({ $0.identifier(.bcp47) }).contains(locale.identifier(.bcp47)) {
+        let installedLocales = await SpeechTranscriber.installedLocales
+        if !installedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
                 try await noora.progressBarStep(
                     message: "Downloading required assets…"
                 ) { @Sendable progressCallback in
-                    struct ProgressCallback: @unchecked Sendable {
-                        let callback: (Double) -> Void
+                    struct ReportProgress: @unchecked Sendable {
+                        let callAsFunction: (Double) -> Void
                     }
-                    let progressCallback = ProgressCallback(callback: progressCallback)
-                    Task {
-                        while !request.progress.isFinished {
-                            progressCallback.callback(request.progress.fractionCompleted)
-                            try? await Task.sleep(for: .seconds(0.1))
+                    let reportProgress = ReportProgress(callAsFunction: progressCallback)
+                    try await withThrowingDiscardingTaskGroup { group in
+                        group.addTask {
+                            while !Task.isCancelled, !request.progress.isFinished {
+                                reportProgress.callAsFunction(request.progress.fractionCompleted)
+                                try await Task.sleep(for: .seconds(0.1))
+                            }
                         }
+                        try await request.downloadAndInstall()
+                        group.cancelAll()
                     }
-                    try await request.downloadAndInstall()
                 }
             }
         }
 
         let analyzer = SpeechAnalyzer(modules: modules)
 
-        let audioFile = try AVAudioFile(forReading: inputFile)
+        let preparedAudioFile = try await TranscriptionAudioFile.prepare(inputFile)
+        defer { preparedAudioFile.removeTemporaryFile() }
+        let audioFile = preparedAudioFile.audioFile
         let audioFileDuration: TimeInterval = Double(audioFile.length) / audioFile.processingFormat.sampleRate
         try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
 
@@ -87,27 +115,35 @@ import Speech
             max(Int(w.ws_col), 9)
         } else { 64 }
 
+        let formatPrimary: @Sendable (String) -> String = { noora.format("\(.primary($0))") }
+        let useOSCProgress = isatty(STDERR_FILENO) != 0
         try await noora.progressStep(
-            message: "Transcribing audio…",
-            successMessage: "Audio transcribed",
-            errorMessage: "Failed to transcribe audio",
+            message: "Transcribing audio using locale: \"\(locale.identifier)\"…",
+            successMessage: "Audio transcribed using locale: \"\(locale.identifier)\"",
+            errorMessage: "Failed to transcribe audio using locale: \"\(locale.identifier)\"",
             showSpinner: true
         ) { @Sendable progressHandler in
             for try await result in transcriber.results {
                 await MainActor.run {
                     transcript += result.text
                 }
-                let progress = max(min(result.resultsFinalizationTime.seconds / audioFileDuration, 1), 0)
-                var percent = progress.formatted(.percent.precision(.fractionLength(0)))
-                let oneHundredPercent = 1.0.formatted(.percent.precision(.fractionLength(0)))
-                percent = String(String(repeating: " ", count: max(oneHundredPercent.count - percent.count, 0))) + percent
-                let message = "[\(percent)] \(String(result.text.characters).trimmingCharacters(in: .whitespaces).prefix(terminalColumns - "⠋ [\(oneHundredPercent)] ".count))"
+                let progress = min(max(result.resultsFinalizationTime.seconds / audioFileDuration, 0), 1)
+                let percent = Int(progress * 100)
+                if useOSCProgress {
+                    FileHandle.standardError.write(Data("\u{1b}]9;4;1;\(percent)\u{7}".utf8))
+                }
+                let preview = String(result.text.characters).trimmingCharacters(in: .whitespaces)
+                let message = "\(formatPrimary("[\(String(format: "%3d%%", percent))]")) \(preview.prefix(terminalColumns - "⠋ [100%] ".count))"
                 progressHandler(message)
             }
         }
+        if useOSCProgress {
+            FileHandle.standardError.write(Data("\u{1b}]9;4;0\u{7}".utf8))
+        }
 
+        let output = outputFormat.text(for: transcript, maxLength: maxLength, locale: locale, wordTimestamps: wordTimestamps)
         if let outputFile {
-            try outputFormat.text(for: transcript).write(
+            try output.write(
                 to: outputFile,
                 atomically: false,
                 encoding: .utf8
@@ -116,7 +152,7 @@ import Speech
         }
 
         if piped || outputFile == nil {
-            print(outputFormat.text(for: transcript))
+            print(output)
         }
     }
 }
@@ -124,7 +160,19 @@ import Speech
 // MARK: Transcribe.Error
 
 extension Transcribe {
-    enum Error: Swift.Error {
+    enum Error: Swift.Error, LocalizedError {
         case unsupportedLocale
+        case speechTranscriberNotAvailable
+
+        // MARK: Internal
+
+        var errorDescription: String? {
+            switch self {
+            case .unsupportedLocale:
+                "The specified locale is not supported for speech transcription."
+            case .speechTranscriberNotAvailable:
+                "SpeechTranscriber is not available on this device."
+            }
+        }
     }
 }
