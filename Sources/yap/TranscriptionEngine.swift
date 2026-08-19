@@ -5,7 +5,7 @@ import Speech
 
 enum TranscriptionEngine {
     struct Options: Sendable {
-        var locale: Locale = .init(identifier: Locale.current.identifier)
+        var locale: Locale?
         var censor: Bool = false
         var outputFormat: OutputFormat = .txt
         var maxLength: Int = 40
@@ -24,18 +24,18 @@ enum TranscriptionEngine {
             throw TranscriptionError.speechTranscriberNotAvailable
         }
 
-        let supportedLocales = await SpeechTranscriber.supportedLocales
-        guard supportedLocales.contains(where: { $0.identifier(.bcp47) == options.locale.identifier(.bcp47) }) else {
-            throw TranscriptionError.unsupportedLocale(options.locale.identifier)
+        let requestedLocale = options.locale ?? .current
+        guard let locale = await TranscriptionLocale.resolve(explicitLocale: options.locale) else {
+            throw TranscriptionError.unsupportedLocale(requestedLocale.identifier)
         }
 
         for locale in await AssetInventory.reservedLocales {
             await AssetInventory.release(reservedLocale: locale)
         }
-        try await AssetInventory.reserve(locale: options.locale)
+        try await AssetInventory.reserve(locale: locale)
 
         let transcriber = SpeechTranscriber(
-            locale: options.locale,
+            locale: locale,
             transcriptionOptions: options.censor ? [.etiquetteReplacements] : [],
             reportingOptions: [],
             attributeOptions: options.outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
@@ -43,7 +43,7 @@ enum TranscriptionEngine {
         let modules: [any SpeechModule] = [transcriber]
 
         let installedLocales = await SpeechTranscriber.installedLocales
-        if !installedLocales.contains(where: { $0.identifier(.bcp47) == options.locale.identifier(.bcp47) }) {
+        if !installedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
                 try await request.downloadAndInstall()
             }
@@ -59,7 +59,7 @@ enum TranscriptionEngine {
             transcript += result.text
         }
 
-        return options.outputFormat.text(for: transcript, maxLength: options.maxLength, locale: options.locale, wordTimestamps: options.wordTimestamps)
+        return options.outputFormat.text(for: transcript, maxLength: options.maxLength, locale: locale, wordTimestamps: options.wordTimestamps)
     }
 }
 
