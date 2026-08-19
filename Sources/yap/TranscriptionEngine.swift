@@ -5,7 +5,7 @@ import Speech
 
 enum TranscriptionEngine {
     struct Options: Sendable {
-        var locale: Locale?
+        var locale: Locale? = nil
         var censor: Bool = false
         var outputFormat: OutputFormat = .txt
         var maxLength: Int = 40
