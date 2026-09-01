@@ -45,10 +45,7 @@ struct Dictate: AsyncParsableCommand {
             throw Transcribe.Error.unsupportedLocale
         }
 
-        for locale in await AssetInventory.reservedLocales {
-            await AssetInventory.release(reservedLocale: locale)
-        }
-        try await AssetInventory.reserve(locale: locale)
+        try await AssetInventory.reserveIfNeeded(locale: locale)
 
         let transcriber = SpeechTranscriber(
             locale: locale,
