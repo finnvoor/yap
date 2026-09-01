@@ -56,10 +56,7 @@ struct ListenAndDictate: AsyncParsableCommand {
             throw Transcribe.Error.unsupportedLocale
         }
 
-        for locale in await AssetInventory.reservedLocales {
-            await AssetInventory.release(reservedLocale: locale)
-        }
-        try await AssetInventory.reserve(locale: locale)
+        try await AssetInventory.reserveIfNeeded(locale: locale)
 
         let transcriptionOptions: Set<SpeechTranscriber.TranscriptionOption> = censor ? [.etiquetteReplacements] : []
         let attributeOptions: Set<SpeechTranscriber.ResultAttributeOption> = outputFormat.needsAudioTimeRange ? [.audioTimeRange] : []
