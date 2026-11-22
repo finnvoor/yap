@@ -18,7 +18,7 @@ struct Listen: AsyncParsableCommand {
         name: .shortAndLong,
         help: "(default: current)",
         transform: Locale.init(identifier:)
-    ) var locale: Locale = .init(identifier: Locale.current.identifier)
+    ) var locale: Locale?
 
     @Flag(
         help: "Replaces certain words and phrases with a redacted form."
@@ -42,8 +42,7 @@ struct Listen: AsyncParsableCommand {
             throw Transcribe.Error.speechTranscriberNotAvailable
         }
 
-        let supportedLocales = await SpeechTranscriber.supportedLocales
-        guard supportedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) else {
+        guard let locale = await TranscriptionLocale.resolve(explicitLocale: locale) else {
             throw Transcribe.Error.unsupportedLocale
         }
 

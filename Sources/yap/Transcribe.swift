@@ -10,7 +10,7 @@ import Speech
         name: .shortAndLong,
         help: "(default: current)",
         transform: Locale.init(identifier:)
-    ) var locale: Locale = .init(identifier: Locale.current.identifier)
+    ) var locale: Locale?
 
     @Flag(
         help: "Replaces certain words and phrases with a redacted form."
@@ -58,9 +58,10 @@ import Speech
             throw Error.speechTranscriberNotAvailable
         }
 
-        let supportedLocales = await SpeechTranscriber.supportedLocales
-        guard supportedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) else {
-            noora.error(.alert("Locale \"\(locale.identifier)\" is not supported. Supported locales:\n\(supportedLocales.map(\.identifier))"))
+        let requestedLocale = locale ?? .current
+        guard let locale = await TranscriptionLocale.resolve(explicitLocale: locale) else {
+            let supportedLocales = await SpeechTranscriber.supportedLocales
+            noora.error(.alert("Locale \"\(requestedLocale.identifier)\" is not supported. Supported locales:\n\(supportedLocales.map(\.identifier))"))
             throw Error.unsupportedLocale
         }
 
