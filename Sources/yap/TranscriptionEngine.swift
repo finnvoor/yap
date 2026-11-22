@@ -29,10 +29,7 @@ enum TranscriptionEngine {
             throw TranscriptionError.unsupportedLocale(options.locale.identifier)
         }
 
-        for locale in await AssetInventory.reservedLocales {
-            await AssetInventory.release(reservedLocale: locale)
-        }
-        try await AssetInventory.reserve(locale: options.locale)
+        try await AssetInventory.reserveIfNeeded(locale: options.locale)
 
         let transcriber = SpeechTranscriber(
             locale: options.locale,
